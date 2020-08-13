@@ -17,6 +17,16 @@ import os
 import time
 import warnings
 import webbrowser
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import Select
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import ElementNotInteractableException
+import time
+
 
 import requests
 from spotipy.util import CLIENT_CREDS_ENV_VARS, get_host_port
@@ -235,7 +245,9 @@ class SpotifyOAuth(SpotifyAuthBase):
         proxies=None,
         show_dialog=False,
         requests_session=True,
-        requests_timeout=None
+        requests_timeout=None,
+        login=None,
+        password=None
     ):
         """
             Creates a SpotifyOAuth object
@@ -254,6 +266,14 @@ class SpotifyOAuth(SpotifyAuthBase):
 
         super(SpotifyOAuth, self).__init__(requests_session)
 
+        os.environ['MOZ_HEADLESS_WIDTH'] = '2560'  # workaround to set size correctly
+        os.environ['MOZ_HEADLESS_HEIGHT'] = '1440'
+        from webdriver_manager.chrome import ChromeDriverManager
+
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless")
+        self.driver = webdriver.Chrome(ChromeDriverManager().install(), chrome_options=options)
+
         self.client_id = client_id
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri
@@ -266,6 +286,8 @@ class SpotifyOAuth(SpotifyAuthBase):
         self.proxies = proxies
         self.requests_timeout = requests_timeout
         self.show_dialog = show_dialog
+        self.login = login
+        self.password = password
 
     def get_cached_token(self):
         """ Gets a cached auth token
@@ -370,14 +392,27 @@ class SpotifyOAuth(SpotifyAuthBase):
     def _open_auth_url(self):
         auth_url = self.get_authorize_url()
         try:
-            webbrowser.open(auth_url)
+            # webbrowser.open(auth_url)
+            self.driver.get(auth_url)
+            time.sleep(1)
+            if self.driver.current_url.startswith('https://localhost:8080'):
+                return self.driver.current_url
+
+            # WebDriverWait(driver, 10).until(
+            #     EC.visibility_of_element_located((By.ID, "login-username")))
+            self.driver.find_element_by_id('login-username').send_keys(self.login)
+            self.driver.find_element_by_id('login-password').send_keys(self.password)
+            self.driver.find_element_by_id('login-button').click()
+
+            WebDriverWait(self.driver, 10).until(EC.url_contains(("localhost:8080")))
+            return self.driver.current_url
             logger.info("Opened %s in your browser", auth_url)
         except webbrowser.Error:
             logger.error("Please navigate here: %s", auth_url)
 
     def _get_auth_response_interactive(self, open_browser=True):
         if open_browser:
-            self._open_auth_url()
+            current_url = self._open_auth_url()
             prompt = "Enter the URL you were redirected to: "
         else:
             url = self.get_authorize_url()
@@ -385,7 +420,7 @@ class SpotifyOAuth(SpotifyAuthBase):
                 "Go to the following URL: {}\n"
                 "Enter the URL you were redirected to: ".format(url)
             )
-        response = SpotifyOAuth._get_user_input(prompt)
+        response = current_url  # SpotifyOAuth._get_user_input(prompt)
         state, code = SpotifyOAuth.parse_auth_response_url(response)
         if self.state is not None and self.state != state:
             raise SpotifyStateError(self.state, state)
@@ -669,7 +704,8 @@ class SpotifyPKCE(SpotifyAuthBase):
     def _open_auth_url(self, state=None):
         auth_url = self.get_authorize_url(state)
         try:
-            webbrowser.open(auth_url)
+            # webbrowser.open(auth_url)
+            self.driver.get(auth_url)
             logger.info("Opened %s in your browser", auth_url)
         except webbrowser.Error:
             logger.error("Please navigate here: %s", auth_url)
@@ -846,9 +882,9 @@ class SpotifyPKCE(SpotifyAuthBase):
             raise SpotifyOauthError('error: {0}, error_descr: {1}'.format(error_payload['error'],
                                                                           error_payload[
                                                                               'error_description'
-                                                                              ]),
-                                    error=error_payload['error'],
-                                    error_description=error_payload['error_description'])
+            ]),
+                error=error_payload['error'],
+                error_description=error_payload['error_description'])
         token_info = response.json()
         token_info = self._add_custom_values_to_token_info(token_info)
         self._save_token_info(token_info)
@@ -1097,7 +1133,8 @@ class SpotifyImplicitGrant(SpotifyAuthBase):
     def _open_auth_url(self, state=None):
         auth_url = self.get_authorize_url(state)
         try:
-            webbrowser.open(auth_url)
+            # webbrowser.open(auth_url)
+            self.driver.get(auth_url)
             logger.info("Opened %s in your browser", auth_url)
         except webbrowser.Error:
             logger.error("Please navigate here: %s", auth_url)
